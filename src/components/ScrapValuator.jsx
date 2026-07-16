@@ -4,7 +4,7 @@ import RecentActivity from './RecentActivity.jsx';
 import { co2FactorFor } from '../utils/co2.js';
 import { addRecent, getRecent } from '../utils/recentActivity.js';
 
-const API_URL = 'http://localhost:8080/api/evaluate-scrap';
+const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/evaluate-scrap`;
 
 const formatINR = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
