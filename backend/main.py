@@ -225,23 +225,32 @@ def evaluate_scrap_image(image_bytes: bytes, content_type: str) -> ScrapValuatio
 
     image_part = types.Part.from_bytes(data=image_bytes, mime_type=content_type)
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=[
-                VISION_SYSTEM_PROMPT,
-                "Evaluate the scrap material in this photo.",
-                image_part,
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-            ),
-        )
-    except Exception as exc:
+    import time
+
+    last_exc = None
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-flash-latest",
+                contents=[
+                    VISION_SYSTEM_PROMPT,
+                    "Evaluate the scrap material in this photo.",
+                    image_part,
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
+            )
+            break
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(2)
+    else:
         raise HTTPException(
             status_code=502,
-            detail=f"Gemini request failed: {exc}",
-        ) from exc
+            detail=f"Gemini request failed after retries: {last_exc}",
+        ) from last_exc
 
     raw = response.text.strip()
 
