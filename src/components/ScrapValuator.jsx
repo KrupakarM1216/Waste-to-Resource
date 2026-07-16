@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 
 // CRITICAL FIX: Pointing to your live Render backend for the file upload
-const API_URL = `${import.meta.env.VITE_API_URL || 'https://waste-to-resource.onrender.com'}/api/evaluate-scrap`;
+// GOOD: Pointing to Render
+const API_URL = `${import.meta.env.VITE_API_URL || 'https://waste-to-resource.onrender.com'}/api/analyze`;
 
 const formatINR = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 

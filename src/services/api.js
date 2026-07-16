@@ -7,7 +7,8 @@
  * no changes needed in the components.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// Make sure it defaults to the Render URL, NOT localhost:8080
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://waste-to-resource.onrender.com';
 const USE_MOCK = false;
 
 // ---------------------------------------------------------------------------
