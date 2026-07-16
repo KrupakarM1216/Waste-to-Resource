@@ -192,14 +192,22 @@ function scoreVariation(description) {
  */
 export async function analyzeWaste(description) {
   if (!USE_MOCK) {
-    const res = await fetch(`${BASE_URL}/api/analyze`, {
+    const res = await fetch(`${BASE_URL}/api/evaluate-scrap`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description }),
     });
-    if (!res.ok) {
-      throw new Error(`Analysis failed (${res.status})`);
+
+    // 1. Catch the specific Gemini overload / retry exhaust errors (502/503)
+    if (res.status === 502 || res.status === 503) {
+      throw new Error("Our AI is currently experiencing heavy traffic. Please wait a moment and try again.");
     }
+
+    // 2. Catch any other random server errors (404, 500, etc.)
+    if (!res.ok) {
+      throw new Error(`Analysis failed (${res.status}). Please try again.`);
+    }
+
     return res.json();
   }
 
