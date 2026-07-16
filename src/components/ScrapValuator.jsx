@@ -42,9 +42,12 @@ export default function ScrapValuator() {
       const formData = new FormData();
       formData.append('file', file); // 'file' matches your FastAPI expected field exactly
 
-      const res = await fetch(API_URL, { 
-        method: 'POST', 
-        body: formData // NO Headers here! The browser handles it automatically.
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ description: yourTextVariable }) 
       });
       
       const data = await res.json();

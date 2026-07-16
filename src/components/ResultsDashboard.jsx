@@ -70,7 +70,7 @@ const demandStyles = {
 };
 
 // Placeholder number — replace with each buyer's real WhatsApp number.
-const QUOTE_WHATSAPP_NUMBER = '919876543210';
+const QUOTE_WHATSAPP_NUMBER = '8147379588';
 
 function buildQuoteLink(business, materialType, description) {
   const message =
