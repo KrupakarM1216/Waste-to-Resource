@@ -3,8 +3,9 @@ EcoSync API — FastAPI backend for the Green Tech waste-matching platform.
 
 Features:
   1. Text-based waste matching  — keyword/fuzzy categorization + buyer matches.
-  2. Scrap-to-Cash valuation    — Gemini Vision analyzes a scrap photo and
-                                  estimates market value in ₹/kg.
+  2. Scrap-to-Cash assessment   — Gemini Vision analyzes a scrap photo and
+                                  returns a structured industrial assessment
+                                  (material, weight, purity, hazards, CO₂, ₹/kg).
 
 Run with:
     uvicorn main:app --reload --port 8080
@@ -27,19 +28,28 @@ from pydantic import BaseModel, Field
 
 load_dotenv()  # reads backend/.env (GEMINI_API_KEY=...)
 
+# Override with GEMINI_MODEL in .env if your key has quota on a different model.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
 app = FastAPI(
     title="EcoSync API",
     description="AI-powered matching and valuation of industrial by-products.",
-    version="1.1.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+):5173|https://.*\.vercel\.app",
+    allow_origins=[
+        "http://localhost:5173",   # Vite default port
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",   # Vite fallback port (5173 in use)
+        "http://127.0.0.1:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
@@ -61,12 +71,17 @@ class MatchResult(BaseModel):
     buyer_name: str
 
 
-class ScrapValuation(BaseModel):
-    """Gemini Vision valuation of an uploaded scrap photo."""
+class ScrapAssessment(BaseModel):
+    """Structured Gemini Vision assessment of an uploaded scrap photo."""
 
-    material: str
+    material_category: str
+    specific_materials: list[str]
+    estimated_weight_kg: int = Field(..., ge=0)
+    purity_assessment: str
+    hazard_flags: list[str]
+    carbon_saved_kg: float = Field(..., ge=0)
     confidence_score: int = Field(..., ge=0, le=100)
-    market_value_inr: int = Field(..., description="Estimated ₹ per kg")
+    market_value_inr: int = Field(..., ge=0, description="Estimated ₹ per kg")
 
 
 # ---------------------------------------------------------------------------
@@ -189,70 +204,68 @@ def build_matches(category: str, base_score: int) -> list[MatchResult]:
 
 
 # ---------------------------------------------------------------------------
-# Service: Gemini Vision scrap valuation
+# Service: Gemini Vision scrap assessment
 # ---------------------------------------------------------------------------
 
-VISION_SYSTEM_PROMPT = (
-    "You are an industrial scrap valuation expert. Analyze the uploaded "
-    "image and identify the primary scrap material. You must respond ONLY "
-    "with a raw JSON object containing three keys: material (string), "
-    "confidence_score (integer 0-100), and market_value_inr (integer, "
-    "estimated value in ₹ per kg). Do not include markdown formatting."
-)
+VISION_SYSTEM_PROMPT = """You are an expert industrial scrap and recycling assessor for an eco-logistics platform.
+Your job is to analyze images of waste/scrap provided by users and return a structured JSON response.
+
+Analyze the image and provide the following:
+1. "material_category": The broad category (e.g., "Polymer & Plastic Scrap", "Ferrous Metals").
+2. "specific_materials": A list of specific materials detected (e.g., ["HDPE", "Copper Wire"]).
+3. "estimated_weight_kg": A rough numerical estimation of the weight in kilograms based on the visual volume (return an integer).
+4. "purity_assessment": A brief assessment of how clean or mixed the scrap is.
+5. "hazard_flags": A list of any potential environmental or safety hazards (e.g., ["Contains motor oil", "Sharp edges"]). If none, return an empty list.
+6. "carbon_saved_kg": An estimated number of kilograms of CO2 saved if this material is recycled instead of landfilled.
+7. "confidence_score": An integer 0-100 representing how confident you are in the identification.
+8. "market_value_inr": An integer, the estimated market value in ₹ per kg for the primary material.
+
+OUTPUT STRICTLY IN VALID JSON FORMAT. Do not include markdown blocks like ```json. Just output the raw JSON object."""
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 
 def get_gemini_client() -> genai.Client:
-    """Configure Gemini, failing clearly if the key is missing."""
+    """Build a Gemini client, failing clearly if the key is missing."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(
             status_code=503,
             detail=(
                 "GEMINI_API_KEY is not configured. "
-                "Add it to backend/.env (GEMINI_API_KEY=...) and restart."
+                "Add it to backend/.env (GEMINI_API_KEY=...) and restart. "
+                "Get a free key at https://aistudio.google.com/apikey"
             ),
         )
     return genai.Client(api_key=api_key)
 
 
-def evaluate_scrap_image(image_bytes: bytes, content_type: str) -> ScrapValuation:
+def evaluate_scrap_image(image_bytes: bytes, content_type: str) -> ScrapAssessment:
     """
-    Send a scrap photo to Gemini and parse its JSON valuation.
+    Send a scrap photo to Gemini Vision and parse its structured assessment.
     """
     client = get_gemini_client()
 
-    image_part = types.Part.from_bytes(data=image_bytes, mime_type=content_type)
-
-    import time
-
-    last_exc = None
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model="gemini-flash-latest",
-                contents=[
-                    VISION_SYSTEM_PROMPT,
-                    "Evaluate the scrap material in this photo.",
-                    image_part,
-                ],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                ),
-            )
-            break
-        except Exception as exc:
-            last_exc = exc
-            if attempt < 2:
-                time.sleep(2)
-    else:
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=content_type),
+                "Analyze the scrap material in this photo and return the assessment JSON.",
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction=VISION_SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
+        )
+    except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Gemini request failed after retries: {last_exc}",
-        ) from last_exc
+            detail=f"Gemini API call failed: {exc}",
+        ) from exc
 
-    raw = response.text.strip()
+    raw = (response.text or "").strip()
 
     # Defensive parse: strip markdown fences if the model adds them anyway.
     if raw.startswith("```"):
@@ -261,21 +274,15 @@ def evaluate_scrap_image(image_bytes: bytes, content_type: str) -> ScrapValuatio
             raw = raw[4:]
         raw = raw.strip()
 
-    # Defensive parse: extract just the first {...} block in case the
-    # model appends stray characters (extra braces, trailing text, etc).
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        raw = raw[start:end + 1]
-
     try:
         data = json.loads(raw)
-        return ScrapValuation(**data)
+        return ScrapAssessment(**data)
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(
             status_code=502,
             detail=f"AI returned an unparseable response: {raw[:200]}",
         ) from exc
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -285,7 +292,7 @@ def evaluate_scrap_image(image_bytes: bytes, content_type: str) -> ScrapValuatio
 @app.get("/health")
 def health() -> dict:
     """Simple liveness check."""
-    return {"status": "ok", "service": "EcoSync API", "version": "1.1.0"}
+    return {"status": "ok", "service": "EcoSync API", "version": "2.0.0"}
 
 
 @app.post("/api/match", response_model=list[MatchResult])
@@ -330,11 +337,12 @@ def analyze_for_frontend(payload: WasteInput) -> dict:
     }
 
 
-@app.post("/api/evaluate-scrap", response_model=ScrapValuation)
-async def evaluate_scrap(file: UploadFile = File(...)) -> ScrapValuation:
+@app.post("/api/evaluate-scrap", response_model=ScrapAssessment)
+async def evaluate_scrap(file: UploadFile = File(...)) -> ScrapAssessment:
     """
-    Scrap-to-Cash: accept a scrap photo, send it to Gemini Vision,
-    and return {material, confidence_score, market_value_inr}.
+    Scrap-to-Cash: accept a scrap photo, send it to Gemini Vision, and
+    return the full structured assessment (material, weight, purity,
+    hazards, CO₂ savings, confidence, ₹/kg value).
     """
     # Validate the upload before spending API tokens on it.
     if file.content_type not in ALLOWED_IMAGE_TYPES:
