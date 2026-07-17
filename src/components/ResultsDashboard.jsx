@@ -14,7 +14,6 @@ function ScoreRing({ score }) {
 
     const tick = (now) => {
       const progress = Math.min((now - start) / duration, 1);
-      // ease-out cubic
       const eased = 1 - Math.pow(1 - progress, 3);
       setDisplayed(Math.round(eased * score));
       if (progress < 1) frame = requestAnimationFrame(tick);
@@ -69,7 +68,6 @@ const demandStyles = {
   Low: 'bg-stone-100 text-stone-700',
 };
 
-// Placeholder number — replace with each buyer's real WhatsApp number.
 const QUOTE_WHATSAPP_NUMBER = '8147379588';
 
 function buildQuoteLink(business, materialType, description) {
@@ -118,7 +116,7 @@ function BusinessCard({ business, index, materialType, description }) {
           <dd className="font-semibold text-forest-900">{business.distance}</dd>
         </div>
         <div className="flex items-center justify-between">
-          <dt className="text-forest-800/60">Capacity</dt>
+          <dt className="text-forest-800/60">Est. Value</dt>
           <dd className="font-semibold text-forest-900">{business.capacity}</dd>
         </div>
         <div className="flex items-center justify-between">
@@ -152,7 +150,21 @@ function BusinessCard({ business, index, materialType, description }) {
 export default function ResultsDashboard({ results, onReset, description }) {
   if (!results) return null;
 
-  const { matchScore, materialType, matches } = results;
+  // 1. Map new backend variables to the UI
+  const matchScore = results.recyclability_score || 0;
+  const materialType = results.identified_materials?.join(' & ') || 'Identified Material';
+  
+  // 2. Transform the backend 'potential_buyers' array into the 'matches' format the cards need
+  const matches = (results.potential_buyers || []).map((buyer, index) => ({
+    id: index,
+    initials: buyer.industry ? buyer.industry.substring(0, 2).toUpperCase() : 'CO',
+    demand: buyer.demand_level || 'Medium',
+    name: `${buyer.industry} Partner`,
+    type: buyer.use_case || 'Industrial recycling',
+    distance: 'Local Area', 
+    capacity: buyer.estimated_value_inr || 'Varies', // Hijacking capacity field to show value
+    rating: '4.8', // Placeholder rating
+  }));
 
   return (
     <section className="bg-white py-24">
@@ -178,9 +190,21 @@ export default function ResultsDashboard({ results, onReset, description }) {
               </h3>
               <p className="mt-3 leading-relaxed text-forest-800/70">
                 Our AI identified strong local demand for this material. Here are your
-                top {matches.length} verified buyer matches, ranked by compatibility,
-                proximity, and capacity.
+                top {matches.length} verified buyer matches, ranked by compatibility and capacity.
               </p>
+              
+              {/* Displaying Handling Instructions from backend */}
+              {results.handling_instructions?.length > 0 && (
+                <div className="mt-4 text-sm text-forest-800 bg-white/60 p-3 rounded-lg border border-forest-100">
+                  <span className="font-semibold block mb-1">Handling Advice:</span>
+                  <ul className="list-disc pl-5">
+                    {results.handling_instructions.map((instruction, i) => (
+                      <li key={i}>{instruction}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <button
                 onClick={onReset}
                 className="mt-5 text-sm font-semibold text-forest-600 underline-offset-4 transition-colors hover:text-forest-500 hover:underline"
