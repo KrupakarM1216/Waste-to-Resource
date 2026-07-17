@@ -1,8 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-// CRITICAL FIX: Pointing to your live Render backend for the file upload
-// GOOD: Pointing to Render
-const API_URL = `${import.meta.env.VITE_API_URL || 'https://waste-to-resource.onrender.com'}/api/analyze`;
+const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/evaluate-scrap`;
 
 const formatINR = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
 
@@ -38,24 +36,22 @@ export default function ScrapValuator() {
     setResult(null);
 
     try {
-      // THIS IS THE MAGIC THAT PREVENTS THE 422 ERROR
       const formData = new FormData();
-      formData.append('file', file); // 'file' matches your FastAPI expected field exactly
+      formData.append('file', file);
 
       const res = await fetch(API_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ description: yourTextVariable }) 
+        body: formData,
+        // Don't set Content-Type manually — the browser sets the correct
+        // multipart/form-data boundary automatically for FormData bodies.
       });
-      
+
       const data = await res.json();
 
       if (!res.ok) {
         throw new Error(data.detail || `Valuation failed (${res.status})`);
       }
-      
+
       setResult(data);
     } catch (err) {
       setError(err.message);
@@ -75,10 +71,10 @@ export default function ScrapValuator() {
   return (
     <section className="relative overflow-hidden bg-white py-24">
       <div className="relative mx-auto max-w-3xl px-6">
-        
+
         <div className="text-center mb-10">
           <h2 className="text-3xl font-extrabold text-green-900">AI Scrap Vision</h2>
-          <p className="mt-4 text-gray-600">Upload a photo to estimate value and CO2 savings.</p>
+          <p className="mt-4 text-gray-600">Upload a photo to estimate its market value.</p>
         </div>
 
         <div
@@ -94,7 +90,7 @@ export default function ScrapValuator() {
             className="hidden"
             onChange={(e) => acceptFile(e.target.files?.[0])}
           />
-          
+
           {preview ? (
             <img src={preview} alt="Scrap preview" className="h-48 w-48 mx-auto rounded-xl object-cover shadow" />
           ) : (
@@ -112,7 +108,7 @@ export default function ScrapValuator() {
           >
             {isLoading ? 'Analyzing...' : 'Analyze Photo'}
           </button>
-          
+
           {(file || result) && (
             <button onClick={handleReset} className="text-green-700 underline font-bold">
               Reset
@@ -120,16 +116,14 @@ export default function ScrapValuator() {
           )}
         </div>
 
-        {/* The Results Dashboard */}
         {result && (
           <div className="mt-10 p-6 bg-gray-50 border border-gray-200 rounded-2xl shadow-sm">
             <h3 className="text-xl font-bold text-gray-900 border-b pb-4 mb-4">Analysis Complete</h3>
-            
+
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="bg-white p-4 rounded shadow-sm border border-gray-100">
-                <p className="text-gray-500 uppercase text-xs font-bold">Category</p>
-                <p className="text-lg font-bold text-gray-900">{result.material_category}</p>
-                <p className="text-xs text-gray-500">{result.specific_materials?.join(", ")}</p>
+                <p className="text-gray-500 uppercase text-xs font-bold">Material</p>
+                <p className="text-lg font-bold text-gray-900">{result.material}</p>
               </div>
 
               <div className="bg-white p-4 rounded shadow-sm border border-gray-100">
@@ -137,27 +131,11 @@ export default function ScrapValuator() {
                 <p className="text-lg font-bold text-green-700">{formatINR(result.market_value_inr)}</p>
               </div>
 
-              <div className="bg-white p-4 rounded shadow-sm border border-gray-100">
-                <p className="text-gray-500 uppercase text-xs font-bold">Visual Weight</p>
-                <p className="text-lg font-bold text-gray-900">{result.estimated_weight_kg} kg</p>
-              </div>
-
-              <div className="bg-white p-4 rounded shadow-sm border border-gray-100">
-                <p className="text-gray-500 uppercase text-xs font-bold">CO2 Savings</p>
-                <p className="text-lg font-bold text-emerald-600">{result.carbon_saved_kg} kg</p>
+              <div className="bg-white p-4 rounded shadow-sm border border-gray-100 col-span-2">
+                <p className="text-gray-500 uppercase text-xs font-bold">Confidence</p>
+                <p className="text-lg font-bold text-gray-900">{result.confidence_score}%</p>
               </div>
             </div>
-
-            <div className="mt-4 bg-white p-4 rounded shadow-sm border border-gray-100">
-              <p className="text-gray-500 uppercase text-xs font-bold mb-1">Purity & Quality</p>
-              <p className="text-gray-900">{result.purity_assessment}</p>
-            </div>
-
-            {result.hazard_flags?.length > 0 && (
-              <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg font-semibold text-sm">
-                ⚠️ Hazards Detected: {result.hazard_flags.join(", ")}
-              </div>
-            )}
           </div>
         )}
       </div>
