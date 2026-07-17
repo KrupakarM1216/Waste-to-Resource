@@ -34,14 +34,8 @@ app = FastAPI(title="EcoSync Waste-to-Resource API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "https://waste-to-resource.vercel.app",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False, # This MUST be False when using "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
