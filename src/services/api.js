@@ -1,144 +1,242 @@
-import { useCallback, useRef, useState } from 'react';
+/**
+ * EcoSync API service.
+ *
+ * Currently returns mocked data with simulated network latency.
+ * When the backend is ready, flip USE_MOCK to false — every call
+ * will hit the FastAPI server at BASE_URL instead, no changes
+ * needed in the components.
+ */
 
-const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/evaluate-scrap`;
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const USE_MOCK = false;
 
-const formatINR = (v) => `₹${Number(v).toLocaleString('en-IN')}`;
+// ---------------------------------------------------------------------------
+// Mock data
+// ---------------------------------------------------------------------------
 
-export default function ScrapValuator() {
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
-  const inputRef = useRef(null);
+const MOCK_MATERIAL_CATEGORIES = [
+  {
+    keywords: ['plastic', 'polymer', 'pet', 'hdpe', 'ldpe', 'polypropylene', 'nylon', 'resin'],
+    category: 'Polymer & Plastic Scrap',
+    baseScore: 94,
+  },
+  {
+    keywords: ['metal', 'steel', 'aluminum', 'aluminium', 'copper', 'iron', 'swarf', 'shavings', 'offcut'],
+    category: 'Ferrous & Non-Ferrous Metals',
+    baseScore: 91,
+  },
+  {
+    keywords: ['wood', 'sawdust', 'timber', 'pallet', 'lumber', 'chips', 'bark'],
+    category: 'Wood & Biomass By-Products',
+    baseScore: 89,
+  },
+  {
+    keywords: ['textile', 'fabric', 'cotton', 'fiber', 'fibre', 'yarn', 'cloth', 'garment'],
+    category: 'Textile & Fiber Waste',
+    baseScore: 87,
+  },
+  {
+    keywords: ['food', 'organic', 'grain', 'husk', 'pulp', 'peel', 'brewery', 'spent'],
+    category: 'Organic & Food Processing Waste',
+    baseScore: 92,
+  },
+  {
+    keywords: ['chemical', 'solvent', 'acid', 'oil', 'lubricant', 'sludge'],
+    category: 'Industrial Chemicals & Oils',
+    baseScore: 84,
+  },
+  {
+    keywords: ['glass', 'cullet', 'ceramic', 'silica'],
+    category: 'Glass & Ceramic Cullet',
+    baseScore: 88,
+  },
+  {
+    keywords: ['paper', 'cardboard', 'carton', 'kraft'],
+    category: 'Paper & Cardboard Recyclables',
+    baseScore: 90,
+  },
+];
 
-  const acceptFile = useCallback((selected) => {
-    if (!selected) return;
-    if (!selected.type.startsWith('image/')) {
-      setError('Please upload an image file (JPEG, PNG, or WebP).');
-      return;
+const MOCK_BUSINESSES = {
+  'Polymer & Plastic Scrap': [
+    {
+      id: 1,
+      name: 'GreenLoop Polymers',
+      type: 'Plastic Reprocessor',
+      distance: '4.2 km',
+      demand: 'High',
+      capacity: '120 tonnes/month',
+      rating: 4.8,
+      initials: 'GP',
+    },
+    {
+      id: 2,
+      name: 'ReMold Industries',
+      type: 'Injection Molding',
+      distance: '11.7 km',
+      demand: 'Medium',
+      capacity: '45 tonnes/month',
+      rating: 4.6,
+      initials: 'RI',
+    },
+    {
+      id: 3,
+      name: 'CircuPack Solutions',
+      type: 'Sustainable Packaging',
+      distance: '18.3 km',
+      demand: 'High',
+      capacity: '80 tonnes/month',
+      rating: 4.9,
+      initials: 'CS',
+    },
+  ],
+  'Ferrous & Non-Ferrous Metals': [
+    {
+      id: 1,
+      name: 'Apex Metal Recovery',
+      type: 'Smelting & Refining',
+      distance: '6.9 km',
+      demand: 'High',
+      capacity: '300 tonnes/month',
+      rating: 4.7,
+      initials: 'AM',
+    },
+    {
+      id: 2,
+      name: 'ForgeCycle Ltd.',
+      type: 'Foundry Feedstock',
+      distance: '14.1 km',
+      demand: 'High',
+      capacity: '150 tonnes/month',
+      rating: 4.8,
+      initials: 'FC',
+    },
+    {
+      id: 3,
+      name: 'UrbanOre Traders',
+      type: 'Scrap Aggregator',
+      distance: '9.5 km',
+      demand: 'Medium',
+      capacity: '90 tonnes/month',
+      rating: 4.5,
+      initials: 'UO',
+    },
+  ],
+  default: [
+    {
+      id: 1,
+      name: 'TerraCycle Partners',
+      type: 'Material Recovery Facility',
+      distance: '7.8 km',
+      demand: 'High',
+      capacity: '200 tonnes/month',
+      rating: 4.7,
+      initials: 'TP',
+    },
+    {
+      id: 2,
+      name: 'Verdant Resources Co.',
+      type: 'Upcycling Manufacturer',
+      distance: '12.4 km',
+      demand: 'Medium',
+      capacity: '60 tonnes/month',
+      rating: 4.6,
+      initials: 'VR',
+    },
+    {
+      id: 3,
+      name: 'LoopWorks Industrial',
+      type: 'Circular Supply Chain',
+      distance: '20.1 km',
+      demand: 'High',
+      capacity: '110 tonnes/month',
+      rating: 4.9,
+      initials: 'LW',
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function categorize(description) {
+  const text = description.toLowerCase();
+  for (const entry of MOCK_MATERIAL_CATEGORIES) {
+    if (entry.keywords.some((kw) => text.includes(kw))) {
+      return entry;
     }
-    setError('');
-    setResult(null);
-    setFile(selected);
-    setPreview(URL.createObjectURL(selected));
-  }, []);
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    acceptFile(e.dataTransfer.files?.[0]);
-  };
-
-  const handleSubmit = async () => {
-    if (!file || isLoading) return;
-    setIsLoading(true);
-    setError('');
-    setResult(null);
-
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        body: formData,
-        // Don't set Content-Type manually — the browser sets the correct
-        // multipart/form-data boundary automatically for FormData bodies.
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.detail || `Valuation failed (${res.status})`);
-      }
-
-      setResult(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleReset = () => {
-    setFile(null);
-    setResult(null);
-    setError('');
-    setPreview(null);
-    if (inputRef.current) inputRef.current.value = '';
-  };
-
-  return (
-    <section className="relative overflow-hidden bg-white py-24">
-      <div className="relative mx-auto max-w-3xl px-6">
-
-        <div className="text-center mb-10">
-          <h2 className="text-3xl font-extrabold text-green-900">AI Scrap Vision</h2>
-          <p className="mt-4 text-gray-600">Upload a photo to estimate its market value.</p>
-        </div>
-
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleDrop}
-          onClick={() => inputRef.current?.click()}
-          className="cursor-pointer rounded-3xl border-2 border-dashed border-green-300 bg-green-50 p-10 text-center hover:bg-green-100 transition"
-        >
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => acceptFile(e.target.files?.[0])}
-          />
-
-          {preview ? (
-            <img src={preview} alt="Scrap preview" className="h-48 w-48 mx-auto rounded-xl object-cover shadow" />
-          ) : (
-            <p className="text-green-800 font-semibold">Drag & drop a photo here, or click to browse</p>
-          )}
-        </div>
-
-        {error && <p className="mt-4 text-red-600 text-center font-bold">{error}</p>}
-
-        <div className="mt-6 flex justify-center gap-4">
-          <button
-            onClick={handleSubmit}
-            disabled={!file || isLoading}
-            className="bg-green-700 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-600 disabled:opacity-50"
-          >
-            {isLoading ? 'Analyzing...' : 'Analyze Photo'}
-          </button>
-
-          {(file || result) && (
-            <button onClick={handleReset} className="text-green-700 underline font-bold">
-              Reset
-            </button>
-          )}
-        </div>
-
-        {result && (
-          <div className="mt-10 p-6 bg-gray-50 border border-gray-200 rounded-2xl shadow-sm">
-            <h3 className="text-xl font-bold text-gray-900 border-b pb-4 mb-4">Analysis Complete</h3>
-
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="bg-white p-4 rounded shadow-sm border border-gray-100">
-                <p className="text-gray-500 uppercase text-xs font-bold">Material</p>
-                <p className="text-lg font-bold text-gray-900">{result.material}</p>
-              </div>
-
-              <div className="bg-white p-4 rounded shadow-sm border border-gray-100">
-                <p className="text-gray-500 uppercase text-xs font-bold">Est. Value (per kg)</p>
-                <p className="text-lg font-bold text-green-700">{formatINR(result.market_value_inr)}</p>
-              </div>
-
-              <div className="bg-white p-4 rounded shadow-sm border border-gray-100 col-span-2">
-                <p className="text-gray-500 uppercase text-xs font-bold">Confidence</p>
-                <p className="text-lg font-bold text-gray-900">{result.confidence_score}%</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </section>
-  );
+  }
+  return { category: 'Mixed Industrial By-Products', baseScore: 78 };
 }
+
+function scoreVariation(description) {
+  // Deterministic small variation so the same input gives the same score.
+  let hash = 0;
+  for (let i = 0; i < description.length; i++) {
+    hash = (hash * 31 + description.charCodeAt(i)) % 997;
+  }
+  return hash % 6; // 0–5
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Analyze a plain-English waste description and return AI match results.
+ * @param {string} description
+ * @returns {Promise<{matchScore: number, materialType: string, matches: Array}>}
+ */
+export async function analyzeWaste(description) {
+  if (!USE_MOCK) {
+    const res = await fetch(`${BASE_URL}/api/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || `Analysis failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  // Simulate network + model inference latency.
+  await delay(1800);
+
+  const { category, baseScore } = categorize(description);
+  const matches = MOCK_BUSINESSES[category] ?? MOCK_BUSINESSES.default;
+
+  return {
+    matchScore: Math.min(baseScore + scoreVariation(description), 99),
+    materialType: category,
+    matches,
+  };
+}
+
+/**
+ * Send a scrap photo to the backend for AI-powered valuation.
+ * @param {File} file
+ * @returns {Promise<{material: string, confidence_score: number, market_value_inr: number}>}
+ */
+export async function evaluateScrap(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${BASE_URL}/api/evaluate-scrap`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Valuation failed (${res.status})`);
+  }
+
+  return res.json();
+}
+
+export default { analyzeWaste, evaluateScrap };
